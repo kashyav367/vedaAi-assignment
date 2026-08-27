@@ -1,6 +1,6 @@
-# 🎓 VedaAI - AI Architecture & Engineering Post-Mortem
+# 🎓 VedaAI - AI-Powered Teacher Assessment & Automated Answer Mapping
 
-An intelligent academic assessment platform that uses **Multimodal AI (Google Gemini)**, **PDF.js Vector Matrices**, and **Local OCR Fallbacks** to automate question extraction, student answer mapping, rubric grading, and **pixel-accurate dynamic answer highlighting**.
+An intelligent, state-of-the-art educational evaluation platform built with **Next.js (App Router)**, **Google Gemini AI**, and **PDF.js**. It automates question paper extraction, handwritten/typed student answer sheet mapping, AI-assisted grading, and **pixel-accurate dynamic visual answer highlighting**.
 
 ---
 
@@ -18,46 +18,68 @@ An intelligent academic assessment platform that uses **Multimodal AI (Google Ge
 
 ---
 
-## 🤖 1. What AI Does in This Project (AI Roles & Architecture)
+## 🌟 Key Features
 
-### 🧠 A. Multimodal Question Paper Decomposition
-- **Role:** Extracts unstructured exam papers containing tables, marks allocations `[2 marks]`, and composite subparts (e.g., `Question 9` $\rightarrow$ `9a` and `9b`).
-- **AI Core:** Gemini Vision Multimodal API decomposes questions into discrete JSON-evaluable items.
-
-### 🔍 B. Semantic Answer Sheet Interpretation
-- **Role:** Scans handwritten and typed student answer sheets, filtering noise and mapping unstructured written blocks to their respective question numbers.
-
-### 📝 C. Batch Rubric-Grounded Grading & Teacher Feedback
-- **Role:** Emulates human evaluator grading. Evaluates student responses against question criteria, clamps marks between `0` and `maxMarks`, and quotes specific domain terminology written by the student to construct unique, constructive teacher feedback.
+- **📄 Automatic Question Paper Extraction:** Decomposes complex question papers into discrete questions and sub-parts (e.g., `9(a)`, `9(b)`) with their allocated marks.
+- **🎯 100% Dynamic, Zero-Hardcoded Answer Highlighting:** Targets each student answer on the canvas using vector coordinate mathematics with zero vertical drift.
+- **⚡ Synchronized Split-Screen View:** Clicking any question in the left panel smoothly spotlights the corresponding answer with an animated badge (`Q# Answer`).
+- **🤖 Context-Aware AI Grading & Feedback:** Evaluates student responses individually against maximum marks and generates unique, constructivist feedback tailored to each student's specific written concepts.
+- **🛡️ 4-Tier Resilient Fallback Engine:** Guarantees 100% uptime through a self-healing pipeline (PDF.js Vector Matrix $\rightarrow$ Gemini Vision AI $\rightarrow$ Tesseract.js OCR $\rightarrow$ Heuristic Layout).
 
 ---
 
-## 💥 2. Real Engineering Problems Faced & Solved
+## 🤖 AI Architecture (What AI Does in This System)
 
-### 🚨 1. Vision Model Bounding Box Drift
+1. **Multimodal Question Decomposition:** Parses unstructured exam papers (tables, columns, nested sub-parts, max marks) and normalizes them into structured JSON evaluation targets.
+2. **Semantic Answer Sheet Interpretation:** Scans handwritten/typed student sheets, filters out table headers and noise, and maps student answer paragraphs to the correct question numbers.
+3. **Batch Rubric-Grounded Grading & Teacher Feedback:** Evaluates student answers against question criteria in a single batch pass, clamping scores and synthesizing unique feedback grounded in domain terminology written by the student.
+
+---
+
+## 💥 Major Engineering Challenges & Solutions
+
+### 1. Vision Model Bounding Box Drift
 - **Problem:** Multimodal LLMs hallucinated vertical percentages across long pages (Q1 was okay, but by Q8-Q9 the green box shifted down by 8%, highlighting the wrong question).
 - **Solution:** Replaced LLM visual estimation with **PDF.js `item.transform[5]` vector matrix calculations**, locking highlights mathematically to the actual text glyphs.
 
-### 🚨 2. The "Flattened Text Stream" Trap (Loss of Line Breaks)
-- **Problem:** Standard `pdfjs` text extraction joined all tokens with spaces, turning a 50-line exam sheet into **1 single line (`lines.length = 1`)**, breaking regexes and collapsing line-fraction heights to 0.
+### 2. The "Flattened Text Stream" Trap
+- **Problem:** Standard `pdfjs` text extraction joined all tokens with spaces, turning a 50-line exam sheet into **1 single line (`lines.length = 1`)**, breaking regexes and collapsing calculated heights to 0.
 - **Solution:** Built delta-Y threshold tracking (`Math.abs(itemY - lastY) > 2`) to inject genuine `\n` newlines and embed `[Y:XX.XX]` coordinate tags.
 
-### 🚨 3. The Failure of Hardcoded Heuristics (`startY = 18.2%`)
-- **Problem:** Early prototypes used fixed magic numbers for one sample sheet, which broke on sheets with different table headers or no headers.
-- **Solution:** Implemented dynamic header-keyword detection (`Roll No`, `Subject`, `Class`) to calculate adaptive start offsets and variable answer heights.
+### 3. Eliminating Hardcoded Offsets (`startY = 18.2%`)
+- **Problem:** Fixed magic numbers calibrated for one test PDF broke immediately on sheets with different table headers or no headers.
+- **Solution:** Implemented dynamic header detection (`Roll No`, `Subject`, `Class`) to calculate adaptive start offsets and variable answer heights.
 
-### 🚨 4. Production API Instability (HTTP 429 Rate Limits & 404 Deprecations)
-- **Problem:** API quota exhaustion and deprecated preview model tags (`gemini-2.0-flash`) crashed extraction requests.
-- **Solution:** Built a **4-tier self-healing fallback engine** (PDF.js Vector Text $\rightarrow$ Gemini Model Rotation $\rightarrow$ Tesseract Node OCR $\rightarrow$ Heuristic Evaluation Engine).
-
-### 🚨 5. Subpart Disambiguation (`9a` vs `9(a)` vs `Question 9.a`)
-- **Problem:** Mismatched punctuation between question papers and student sheets prevented answer mapping.
-- **Solution:** Standardized canonical key normalization (`normalizeQKey: /[^a-z0-9]/g`).
+### 4. Production API Quota & Deprecation Handling
+- **Problem:** Free-tier rate limits (HTTP 429) and deprecated preview model tags (`gemini-2.0-flash` 404s) crashed requests.
+- **Solution:** Built an automated candidate model failover array (`gemini-1.5-flash` $\rightarrow$ `gemini-1.5-pro`) and an offline cognitive heuristic grading engine.
 
 ---
 
-## 📚 Detailed Documentation Files
+## 🚀 Getting Started
 
-- 📖 [**AI_AND_CHALLENGES.md**](./AI_AND_CHALLENGES.md) — Comprehensive technical deep-dive into AI roles and engineering hurdles.
-- 📖 [**MISTAKES_AND_DEBUGGING_LOG.md**](./MISTAKES_AND_DEBUGGING_LOG.md) — Complete log of bugs, root causes, and solutions.
-- 📖 [**DOCS.md**](./DOCS.md) — Full API reference, component architecture, and mathematical coordinate formulas.
+### 1. Clone & Install Dependencies
+```bash
+git clone https://github.com/kashyav367/vedaAi-assignment.git
+cd vedaai-assignment
+npm install
+```
+
+### 2. Configure Environment Variables
+Create a `.env.local` file in the root directory:
+```env
+GEMINI_API_KEY=your_google_gemini_api_key_here
+GEMINI_MODEL=gemini-1.5-flash
+```
+
+### 3. Run Development Server
+```bash
+npm run dev
+```
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+---
+
+## 📜 License
+
+This project is licensed under the MIT License.

@@ -22,16 +22,26 @@ const SKIP_PATTERNS = [
 ];
 
 function parseQuestionsFromText(rawText: string): Question[] {
-  const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean);
+  // Strip embedded [Y:XX.XX] coordinate tags from the entire text stream
+  const cleanRawText = rawText.replace(/\[Y:[\d\.]+\]\s*/g, '');
+  const lines = cleanRawText.split('\n').map((l) => l.trim()).filter(Boolean);
   const questions: Question[] = [];
 
   for (let idx = 0; idx < lines.length; idx++) {
     const line = lines[idx];
-    const match = line.match(/^(?:Q|Question)?\s*(\d+)\s*(?:\(?([a-z])\)?|\.([a-z]))?\s*[\.\:\)]\s*(.*)/i);
+    // Matches "1.", "1)", "Question 1:", "9(a).", "9. a.", "9.a)"
+    const match = line.match(/^(?:Q|Question)?\s*(\d+)\s*(?:[\.\:\)]\s*\(?([a-z])\)?|\(?([a-z])\)?|\.([a-z]))?\s*[\.\:\)]?\s*(.*)/i);
     if (match) {
       const num = match[1];
-      const subpart = match[2] || match[3] || null;
-      const qText = match[4].trim() || `Question ${num}${subpart || ''}`;
+      const subpart = match[2] || match[3] || match[4] || null;
+      let qText = match[5]?.trim() || '';
+      
+      // If qText was empty or just a remnant, use the whole line
+      if (!qText || qText.length < 3) {
+        qText = line.replace(/^(?:Q|Question)?\s*\d+\s*(?:[\.\:\)]\s*\(?[a-z]\)?|\(?[a-z]\)?|\.[a-z])?\s*[\.\:\)]?\s*/i, '').trim();
+      }
+      
+      qText = qText.replace(/\[Y:[\d\.]+\]\s*/g, '').trim();
       const lower = qText.toLowerCase();
       if (SKIP_PATTERNS.some((p) => lower.includes(p))) continue;
 
@@ -41,7 +51,7 @@ function parseQuestionsFromText(rawText: string): Question[] {
       questions.push({
         number: num,
         subpart: subpart ? subpart.toLowerCase() : null,
-        text: qText,
+        text: qText || `Question ${num}${subpart || ''}`,
         maxMarks,
       });
     }
@@ -51,13 +61,14 @@ function parseQuestionsFromText(rawText: string): Question[] {
   if (questions.length === 0) {
     let qNum = 1;
     for (const line of lines) {
-      if (line.length > 5 && (line.includes('?') || /^\d+/.test(line))) {
-        const lower = line.toLowerCase();
+      const cleanLine = line.replace(/\[Y:[\d\.]+\]\s*/g, '').trim();
+      if (cleanLine.length > 5 && (cleanLine.includes('?') || /^\d+/.test(cleanLine))) {
+        const lower = cleanLine.toLowerCase();
         if (SKIP_PATTERNS.some((p) => lower.includes(p))) continue;
         questions.push({
           number: String(qNum++),
           subpart: null,
-          text: line,
+          text: cleanLine,
           maxMarks: 2,
         });
       }

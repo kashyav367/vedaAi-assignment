@@ -80,7 +80,9 @@ export default function QuestionList({ questions, answers, selectedQ, onSelect }
                   </div>
                   <div className="flex-1">
                     {q.subpart && <span className="text-xs font-bold text-gray-500 mr-1">{q.subpart}.</span>}
-                    <p className="text-sm font-medium text-gray-800 leading-snug">{q.text}</p>
+                    <p className="text-sm font-medium text-gray-800 leading-snug">
+                      {q.text.replace(/\[Y:[\d\.]+\]\s*/g, '')}
+                    </p>
                   </div>
                 </div>
 
