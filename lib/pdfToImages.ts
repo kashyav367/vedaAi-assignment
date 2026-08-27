@@ -1,13 +1,13 @@
 'use client';
 
-export async function pdfToImages(file: File): Promise<string[]> {
-  // Dynamic import — sirf tab load hoga jab function actually browser me call ho
+export async function pdfToImages(file: File): Promise<{ images: string[]; pdfText: string }> {
   const pdfjsLib = await import('pdfjs-dist');
   pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const images: string[] = [];
+  const textPieces: string[] = [];
 
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
@@ -19,9 +19,30 @@ export async function pdfToImages(file: File): Promise<string[]> {
 
     await page.render({ canvasContext: ctx, viewport, canvas }).promise;
     images.push(canvas.toDataURL('image/png').split(',')[1]);
+
+    try {
+      const textContent = await page.getTextContent();
+      // Build text with real line breaks by detecting Y-position changes between items
+      let lastY: number | null = null;
+      const lineChunks: string[] = [];
+      for (const item of textContent.items as any[]) {
+        if (!item.str || item.str.trim().length === 0) continue;
+        const itemY = item.transform ? item.transform[5] : null;
+        if (lastY !== null && itemY !== null && Math.abs(itemY - lastY) > 2) {
+          // Y position changed significantly → new line
+          lineChunks.push('\n');
+        }
+        lineChunks.push(item.str);
+        if (itemY !== null) lastY = itemY;
+      }
+      const pageText = lineChunks.join(' ').replace(/ *\n */g, '\n').trim();
+      if (pageText.trim()) {
+        textPieces.push(`--- PAGE ${i} ---\n${pageText}`);
+      }
+    } catch (_) {}
   }
 
-  return images;
+  return { images, pdfText: textPieces.join('\n\n') };
 }
 
 export function fileToBase64(file: File): Promise<string> {

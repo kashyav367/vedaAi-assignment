@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Minus, Plus } from 'lucide-react';
 import HighlightOverlay from './HighlightOverlay';
 
@@ -18,22 +18,25 @@ interface Props {
 
 function normalizeKey(str: string): string {
   if (!str) return '';
-  return str.toString().toLowerCase().replace(/^q(?:uestion)?\s*/i, '').replace(/[^a-z0-9]/g, '');
+  return str
+    .toString()
+    .toLowerCase()
+    .replace(/^q(?:uestion)?\s*/i, '')
+    .replace(/[^a-z0-9]/g, '');
 }
 
 function matchesQuestion(aNum: string, selectedKey: string): boolean {
   const k1 = normalizeKey(aNum);
   const k2 = normalizeKey(selectedKey);
   if (!k1 || !k2) return false;
-  if (k1 === k2) return true;
-  const m1 = k1.match(/\d+[a-z]?/);
-  const m2 = k2.match(/\d+[a-z]?/);
-  return !!(m1 && m2 && m1[0] === m2[0]);
+  return k1 === k2;
 }
 
 export default function AnswerViewer({ images, answers, selectedQ }: Props) {
   const [currentPage, setCurrentPage] = useState(1);
   const [zoom, setZoom] = useState(100);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const matchedAnswers = answers.filter((a) => matchesQuestion(a.questionNumber, selectedQ || ''));
 
@@ -42,6 +45,16 @@ export default function AnswerViewer({ images, answers, selectedQ }: Props) {
       setCurrentPage(matchedAnswers[0].page);
     }
   }, [selectedQ]);
+
+  // Smooth scroll to center the highlighted box when selectedQ changes
+  useEffect(() => {
+    if (overlayRef.current && scrollContainerRef.current) {
+      const timer = setTimeout(() => {
+        overlayRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedQ, currentPage]);
 
   const pageAnswers = matchedAnswers.filter((a) => a.page === currentPage);
 
@@ -87,15 +100,15 @@ export default function AnswerViewer({ images, answers, selectedQ }: Props) {
       </div>
 
       {/* Image Container */}
-      <div className="flex-1 overflow-auto flex justify-center p-6 bg-[#E5E7EB]">
-        <div className="relative inline-block shadow-2xl rounded-xl bg-white" style={{ width: `${zoom}%`, maxWidth: '900px' }}>
+      <div ref={scrollContainerRef} className="flex-1 overflow-auto flex justify-center p-6 bg-[#E5E7EB]">
+        <div className="relative inline-block shadow-2xl rounded-xl bg-white h-fit" style={{ width: `${zoom}%`, maxWidth: '900px' }}>
           <img
             src={`data:image/png;base64,${images[currentPage - 1]}`}
             alt={`Page ${currentPage}`}
             className="w-full rounded-xl"
           />
           {pageAnswers.map((a, i) => (
-            <HighlightOverlay key={i} bbox={a.bbox} label={a.questionNumber} />
+            <HighlightOverlay key={i} ref={overlayRef} bbox={a.bbox} label={a.questionNumber} />
           ))}
         </div>
       </div>

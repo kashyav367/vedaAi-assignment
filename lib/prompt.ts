@@ -49,8 +49,8 @@ Return ONLY valid JSON, no markdown:
 export const BATCH_GRADING_PROMPT = (items: Array<{ key: string; questionText: string; answerText: string; maxMarks: number }>) => `
 You are an expert teacher grading a student's answer sheet.
 
-Grade each of the following student answers fairly out of its specified maximum marks.
-Provide short, constructive, helpful feedback (1-2 sentences) for each question.
+Grade EACH of the following student answers INDIVIDUALLY based on the specific question content.
+For EACH item, write a 100% UNIQUE, SPECIFIC, and CONSTRUCTIVE teacher feedback (1-2 sentences) directly referencing the concepts written in THAT answer. DO NOT repeat identical template phrases across different questions!
 
 Items to grade:
 ${items.map((item) => `
@@ -63,6 +63,6 @@ Max Marks: ${item.maxMarks}
 Return ONLY valid JSON with no markdown formatting:
 {
   "results": [
-    { "key": "1", "score": 2, "feedback": "Constructive feedback here" }
+    { "key": "1", "score": 2, "feedback": "Unique, specific feedback for question 1" }
   ]
 }`;

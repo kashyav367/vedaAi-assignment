@@ -31,19 +31,20 @@ export default function UploadPage() {
     if (!questionPaper || !answerSheet) return;
     setLoading(true);
     try {
-      const questionImages =
+      const qData =
         questionPaper.type === 'application/pdf'
           ? await pdfToImages(questionPaper)
-          : [await fileToBase64(questionPaper)];
-      const answerImages =
+          : { images: [await fileToBase64(questionPaper)], pdfText: '' };
+
+      const aData =
         answerSheet.type === 'application/pdf'
           ? await pdfToImages(answerSheet)
-          : [await fileToBase64(answerSheet)];
+          : { images: [await fileToBase64(answerSheet)], pdfText: '' };
 
       const qRes = await fetch('/api/extract-questions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ images: questionImages }),
+        body: JSON.stringify({ images: qData.images, pdfText: qData.pdfText }),
       });
       const questionsData = await qRes.json();
       if (questionsData.error) {
@@ -53,7 +54,7 @@ export default function UploadPage() {
       const aRes = await fetch('/api/extract-answers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ images: answerImages, questions: questionsData.questions }),
+        body: JSON.stringify({ images: aData.images, pdfText: aData.pdfText, questions: questionsData.questions }),
       });
       const answersData = await aRes.json();
       if (answersData.error) {
@@ -62,7 +63,7 @@ export default function UploadPage() {
 
       sessionStorage.setItem(
         'mappingData',
-        JSON.stringify({ questions: questionsData.questions, answers: answersData.answers, answerImages })
+        JSON.stringify({ questions: questionsData.questions, answers: answersData.answers, answerImages: aData.images })
       );
       router.push('/mapping');
     } catch (err: any) {
