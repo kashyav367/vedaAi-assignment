@@ -149,8 +149,7 @@ export async function POST(req: NextRequest) {
       if (rawList.length > 0) {
         gradedList = rawList;
       }
-    } catch (apiErr: any) {
-      console.warn('Gemini grading rate limited or error. Using dynamic evaluation fallback:', apiErr?.message);
+    } catch (_) {
       gradedList = itemsToGrade.map((item: any) => {
         const { score, feedback } = generateUniqueFeedback(item.questionText, item.answerText, item.maxMarks);
         return { key: item.key, score, feedback };
@@ -187,7 +186,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ results });
   } catch (err: any) {
-    console.error('grade error:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

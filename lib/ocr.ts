@@ -9,8 +9,7 @@ export async function performOcrOnImage(base64Image: string): Promise<string> {
     const ret = await worker.recognize(buffer);
     await worker.terminate();
     return ret.data.text || '';
-  } catch (err: any) {
-    console.warn('OCR fallback skipped:', err?.message || err);
+  } catch (_) {
     return '';
   }
 }

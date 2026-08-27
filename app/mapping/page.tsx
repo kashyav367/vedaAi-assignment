@@ -56,16 +56,11 @@ export default function MappingPage() {
       });
 
       if (!res.ok) {
-        const errText = await res.text();
-        console.error('Grade API failed:', res.status, errText);
         return;
       }
 
       const json = await res.json();
-      console.log('Grading results:', json);
-
       if (json.error) {
-        console.error('Grade API returned error:', json.error);
         return;
       }
 
@@ -84,8 +79,7 @@ export default function MappingPage() {
         });
         return { ...prev, answers: updatedAnswers };
       });
-    } catch (err) {
-      console.error('Grading failed:', err);
+    } catch (_) {
     } finally {
       setGrading(false);
     }

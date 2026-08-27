@@ -20,21 +20,21 @@ function extractKeyFromText(text: string, questionNumber: string, expectedKeys: 
     if (subpartMatch) {
       const num = subpartMatch[1];
       const sub = subpartMatch[2].toLowerCase();
-      const regex = new RegExp(`^(?:q(?:uestion)?\\s*)?${num}\\s*[\\.\\(-]?\\s*\\(?${sub}\\)?[\\.\\)\\s]`, 'i');
+      const regex = new RegExp(`^(?:(?:q(?:uestion)?|ans(?:wer)?)\\s*)?${num}\\s*(?:\\.?\\s*\\(?${sub}\\)?|\\.${sub})[\\.\\)\\s]`, 'i');
       if (regex.test(textStr)) return normKey;
     } else {
-      const regex = new RegExp(`^(?:q(?:uestion)?\\s*)?${expectedKey}[\\.\\)\\s]`, 'i');
+      const regex = new RegExp(`^(?:(?:q(?:uestion)?|ans(?:wer)?)\\s*)?${expectedKey}[\\.\\)\\s]`, 'i');
       if (regex.test(textStr)) return normKey;
     }
   }
 
-  const parenSubMatch = textStr.match(/^(?:q(?:uestion)?\s*)?(\d+)\s*[\.\(-]?\s*\(([a-z])\)/i);
+  const parenSubMatch = textStr.match(/^(?:(?:q(?:uestion)?|ans(?:wer)?)\s*)?(\d+)\s*[\.\(-]?\s*\(([a-z])\)/i);
   if (parenSubMatch) {
     const key = normalizeQKey(parenSubMatch[1] + parenSubMatch[2]);
     if (normExpected.length === 0 || normExpected.includes(key)) return key;
   }
 
-  const numMatch = textStr.match(/^(?:q(?:uestion)?\s*)?(\d+)[\.\)\s]/i);
+  const numMatch = textStr.match(/^(?:(?:q(?:uestion)?|ans(?:wer)?)\s*)?(\d+)[\.\)\s]/i);
   if (numMatch) {
     const key = normalizeQKey(numMatch[1]);
     if (normExpected.length === 0 || normExpected.includes(key)) return key;
@@ -53,19 +53,19 @@ function hasExplicitQuestionNumber(text: string, expectedKeys: string[]): boolea
     if (subpartMatch) {
       const num = subpartMatch[1];
       const sub = subpartMatch[2].toLowerCase();
-      const regex = new RegExp(`^(?:q(?:uestion)?\\s*)?${num}\\s*[\\.\\(-]?\\s*\\(?${sub}\\)?[\\.\\)\\s]`, 'i');
+      const regex = new RegExp(`^(?:(?:q(?:uestion)?|ans(?:wer)?)\\s*)?${num}\\s*(?:\\.?\\s*\\(?${sub}\\)?|\\.${sub})[\\.\\)\\s]`, 'i');
       if (regex.test(textStr)) return true;
     } else {
-      const regex = new RegExp(`^(?:q(?:uestion)?\\s*)?${expectedKey}[\\.\\)\\s]`, 'i');
+      const regex = new RegExp(`^(?:(?:q(?:uestion)?|ans(?:wer)?)\\s*)?${expectedKey}[\\.\\)\\s]`, 'i');
       if (regex.test(textStr)) return true;
     }
   }
-  const numMatch = textStr.match(/^(?:q(?:uestion)?\s*)?(\d+)[\.\)\s]/i);
+  const numMatch = textStr.match(/^(?:(?:q(?:uestion)?|ans(?:wer)?)\s*)?(\d+)[\.\)\s]/i);
   return !!numMatch;
 }
 
 // Layout strategy:
-// 1. If Gemini Vision returned bbox.y positions → TRUST them (they're measured from the actual image)
+// 1. If Gemini Vision returned bbox.y positions → TRUST them with small padding
 // 2. If no vision data (OCR/fallback) → compute equal-distribution layout
 function layoutAnswerBlocksOnPage(rawBlocks: any[], pageNum: number): any[] {
   if (!rawBlocks || rawBlocks.length === 0) return [];
@@ -75,30 +75,25 @@ function layoutAnswerBlocksOnPage(rawBlocks: any[], pageNum: number): any[] {
   });
   if (answerBlocks.length === 0) return [];
 
-  // Check if we have Vision AI bbox data (at least some blocks have y > 0)
+  // Check if we have Vision AI bbox data
   const hasVisionData = answerBlocks.some(
     (a: any) => typeof a.bbox?.y === 'number' && a.bbox.y > 5
   );
 
   if (hasVisionData) {
-    // STRATEGY 1: Use Vision AI positions directly
-    // Sort by y to ensure top-to-bottom order
     const sorted = [...answerBlocks].sort(
       (a: any, b: any) => (a.bbox?.y || 0) - (b.bbox?.y || 0)
     );
 
     return sorted.map((a: any, idx: number) => {
-      const y = a.bbox?.y || 0;
-      // For height: use vision height if provided, otherwise compute from gap to next answer
+      const y = Math.max(1, (a.bbox?.y || 0) - 1.2);
       let height = a.bbox?.height || 0;
       if (height < 2 && idx < sorted.length - 1) {
-        // Compute height as distance to next answer minus a small gap
         const nextY = sorted[idx + 1].bbox?.y || (y + 7);
-        height = Math.max(3, nextY - y - 0.5);
+        height = Math.max(3.5, nextY - y - 0.5);
       } else if (height < 2) {
-        // Last answer: estimate height from text length
         const lines = Math.max(2, Math.ceil((a.text || '').length / 80));
-        height = lines * 2.2;
+        height = lines * 2.5;
       }
 
       return {
@@ -108,15 +103,15 @@ function layoutAnswerBlocksOnPage(rawBlocks: any[], pageNum: number): any[] {
           x: a.bbox?.x || 4,
           y: Number(y.toFixed(1)),
           width: a.bbox?.width || 92,
-          height: Number(Math.min(height, 20).toFixed(1)),
+          height: Number(Math.min(height, 25).toFixed(1)),
         },
       };
     });
   }
 
-  // STRATEGY 2: No vision data — compute proportional layout from text lengths
+  // STRATEGY 2: Proportional layout fallback
   const startY = pageNum === 1 ? 15.0 : 5.0;
-  const endY = pageNum === 1 ? 85.0 : 95.0;
+  const endY = pageNum === 1 ? 88.0 : 95.0;
   const gap = 0.5;
 
   const blockLines = answerBlocks.map((a: any) => {
@@ -159,18 +154,17 @@ function parseAnswersFromPdfText(rawText: string, expectedQuestions: string[]) {
 
     let lines = pageText.split('\n').filter((l) => l.trim().length > 0);
 
-    // If the PDF text came as a single long line (old extraction), split at question boundaries
-    if (lines.length < 5 && lines.some(l => l.length > 300)) {
+    // If PDF text came as single long line, split at question boundaries
+    if (lines.length < 5 && lines.some((l) => l.length > 300)) {
       const singleLine = lines.join(' ');
-      // Split at question number patterns like "1." "2." "9(a)." etc.
-      const splitLines = singleLine.split(/(?=\b(\d+)\s*(?:\([a-z]\))?\s*[\.\:\)])/i).filter(s => s.trim().length > 0);
-      // Re-join split fragments (the regex capture group creates extra entries)
+      const splitLines = singleLine
+        .split(/(?=\b(?:\d+)\s*(?:\([a-z]\))?\s*[\.\:\)])/i)
+        .filter((s) => s.trim().length > 0);
       const rebuilt: string[] = [];
       for (const frag of splitLines) {
         const trimmed = frag.trim();
         if (!trimmed) continue;
         if (/^\d+$/.test(trimmed) && rebuilt.length > 0) {
-          // This is just a captured digit, prepend to next
           continue;
         }
         rebuilt.push(trimmed);
@@ -183,18 +177,24 @@ function parseAnswersFromPdfText(rawText: string, expectedQuestions: string[]) {
     const totalLines = lines.length;
     if (totalLines === 0) continue;
 
-    // Detect if this page has a header (Student Answer Sheet, Name, Roll No, etc.)
+    // Detect header lines
     let headerLines = 0;
     for (let h = 0; h < Math.min(8, totalLines); h++) {
       const hl = lines[h].toLowerCase();
-      if (hl.includes('student answer') || hl.includes('subject:') || hl.includes('name:') ||
-          hl.includes('roll no') || hl.includes('date:') || hl.includes('class:') ||
-          hl.includes('answer sheet')) {
+      if (
+        hl.includes('student answer') ||
+        hl.includes('subject:') ||
+        hl.includes('name:') ||
+        hl.includes('roll no') ||
+        hl.includes('date:') ||
+        hl.includes('class:') ||
+        hl.includes('answer sheet')
+      ) {
         headerLines = h + 1;
       }
     }
 
-    const parsedLines = lines.map(line => {
+    const parsedLines = lines.map((line) => {
       const match = line.match(/^\[Y:([\d\.]+)\]\s*(.*)$/);
       if (match) {
         return { y: parseFloat(match[1]), text: match[2] };
@@ -205,7 +205,9 @@ function parseAnswersFromPdfText(rawText: string, expectedQuestions: string[]) {
     const itemPositions: any[] = [];
     for (let l = 0; l < parsedLines.length; l++) {
       const lineText = parsedLines[l].text.trim();
-      const match = lineText.match(/^(?:q(?:uestion)?\s*)?(\d+)\s*(?:\(?([a-z])\)?|\.([a-z]))?\s*[\.\:\)]/i);
+      const match =
+        lineText.match(/^(?:(?:q(?:uestion)?|ans(?:wer)?)\s*)?(\d+)\s*(?:\.?\s*\(?([a-z])\)?|\.([a-z]))?\s*[\.\:\)]/i) ||
+        lineText.match(/^(?:(?:q(?:uestion)?|ans(?:wer)?)\s*)?(\d+)\s*\(([a-z])\)/i);
       if (match) {
         const num = match[1];
         const subpart = match[2] || match[3] || '';
@@ -223,7 +225,7 @@ function parseAnswersFromPdfText(rawText: string, expectedQuestions: string[]) {
       const startLine = item.lineIdx;
       const endLine = nextItem ? nextItem.lineIdx : totalLines;
 
-      const fullText = parsedLines.slice(startLine, endLine).map(l => l.text).join(' ').trim();
+      const fullText = parsedLines.slice(startLine, endLine).map((l) => l.text).join(' ').trim();
       const norm = normalizeQKey(item.num);
 
       let mappedNum = item.num;
@@ -237,11 +239,10 @@ function parseAnswersFromPdfText(rawText: string, expectedQuestions: string[]) {
       }
 
       if (fullText.length > 5) {
-        // Find the first valid Y coordinate in this block
-        let startY = null;
-        for (let i = startLine; i < endLine; i++) {
-          if (parsedLines[i].y !== null) {
-            startY = parsedLines[i].y;
+        let startY: number | null = null;
+        for (let idx = startLine; idx < endLine; idx++) {
+          if (parsedLines[idx].y !== null) {
+            startY = parsedLines[idx].y;
             break;
           }
         }
@@ -255,34 +256,27 @@ function parseAnswersFromPdfText(rawText: string, expectedQuestions: string[]) {
       }
     }
 
-    const pageTopMargin = 3.0;
-    const pageBottomMargin = 3.0;
-    const headerFraction = headerLines / totalLines;
-    
     const laidOut = rawBlocks.map((a: any, idx: number) => {
       let y = 0;
       let height = 5;
 
       if (a._exactY !== null) {
-        // We have EXACT coordinates from the PDF!
-        y = a._exactY - 0.5; // slight padding
-        
-        // Find where the next answer starts to determine height
-        let nextY = 97.0; // default bottom
+        // Shift Y up by ~2.2% so the top border sits comfortably above the text line
+        y = Math.max(1, a._exactY - 2.2);
+
+        let nextY = 98.0;
         if (idx < rawBlocks.length - 1 && rawBlocks[idx + 1]._exactY !== null) {
-          nextY = rawBlocks[idx + 1]._exactY;
+          nextY = rawBlocks[idx + 1]._exactY - 2.2;
         }
-        height = Math.max(3, nextY - y - 1.0);
+        height = Math.max(3.5, nextY - y - 1.0);
       } else {
-        // Fallback to proportional calculation if OCR text (no exact Y tags)
         const answerStartFrac = a._startLine / totalLines;
         const answerEndFrac = a._endLine / totalLines;
-        y = pageTopMargin + answerStartFrac * (100 - pageTopMargin - pageBottomMargin);
-        const bottom = pageTopMargin + answerEndFrac * (100 - pageTopMargin - pageBottomMargin);
-        height = Math.max(3, bottom - y - 0.3);
+        y = 3.0 + answerStartFrac * 94;
+        const bottom = 3.0 + answerEndFrac * 94;
+        height = Math.max(3.5, bottom - y - 0.5);
       }
 
-      // Cleanup embedded [Y:] tags from text just in case they slipped through
       const cleanText = a.text.replace(/\[Y:[\d\.]+\]\s*/g, '');
 
       return {
@@ -318,15 +312,11 @@ export async function POST(req: NextRequest) {
     // 1. Fast PDF text parser if pdfText is present (supports multi-page PDFs)
     if (typeof pdfText === 'string' && pdfText.trim().length > 0) {
       try {
-        console.log(`[extract-answers] pdfText length: ${pdfText.length}, lines: ${pdfText.split('\n').length}`);
         const pdfAnswers = parseAnswersFromPdfText(pdfText, expectedQuestions);
         if (pdfAnswers.length > 0) {
           allAnswers = pdfAnswers;
-          console.log(`[extract-answers] PATH 1 (pdfText): ${allAnswers.length} answers extracted`);
         }
-      } catch (e: any) {
-        console.warn('PDF text answer parsing failed:', e?.message);
-      }
+      } catch (_) {}
     }
 
     // 2. Vision AI Call if pdfText was empty or yielded no answers
@@ -343,8 +333,7 @@ export async function POST(req: NextRequest) {
           const resultText = await callGemini([images[i]], promptText);
           const parsed = parseGeminiJson(resultText);
           pageAnswers = (parsed.answers || []).map((a: any) => ({ ...a, page: i + 1 }));
-        } catch (err: any) {
-          console.error(`Page ${i + 1} extraction failed:`, err?.message);
+        } catch (_) {
           continue;
         }
 
@@ -393,7 +382,6 @@ export async function POST(req: NextRequest) {
     // 3. Fallback: Local OCR on Image if Vision AI fails or 503s
     if (allAnswers.length === 0 && Array.isArray(images) && images.length > 0) {
       try {
-        console.log('Running OCR fallback for answer extraction...');
         const ocrTexts: string[] = [];
         for (let i = 0; i < images.length; i++) {
           const txt = await performOcrOnImage(images[i]);
@@ -404,14 +392,11 @@ export async function POST(req: NextRequest) {
         if (ocrAnswers.length > 0) {
           allAnswers = ocrAnswers;
         }
-      } catch (ocrErr: any) {
-        console.warn('OCR answer extraction error:', ocrErr?.message);
-      }
+      } catch (_) {}
     }
 
     // 4. Dynamic Proportional Layout Fallback across Multi-Page PDFs (Zero Hardcoded Data)
     if (allAnswers.length === 0 && expectedQuestions.length > 0) {
-      console.log('Generating dynamic answer blocks for expected questions across multi-page PDF');
       const totalPages = Math.max(1, images?.length || 1);
       const totalQs = expectedQuestions.length;
       const qsPerPage = Math.ceil(totalQs / totalPages);
@@ -428,13 +413,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    console.log('FINAL MAPPING:', JSON.stringify(allAnswers.map(a => ({
-      q: a.questionNumber, page: a.page, y: a.bbox?.y, h: a.bbox?.height, textStart: a.text?.slice(0, 35)
-    })), null, 2));
-
     return NextResponse.json({ answers: allAnswers });
   } catch (err: any) {
-    console.error('extract-answers error:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

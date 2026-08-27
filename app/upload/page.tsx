@@ -67,7 +67,6 @@ export default function UploadPage() {
       );
       router.push('/mapping');
     } catch (err: any) {
-      console.error(err);
       alert(err.message || 'Extraction failed. Please try again.');
     } finally {
       setLoading(false);

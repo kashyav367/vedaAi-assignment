@@ -72,14 +72,13 @@ export default function QuestionList({ questions, answers, selectedQ, onSelect }
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3 flex-1">
                   <div
-                    className={`w-7 h-7 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0 transition-colors ${
+                    className={`min-w-7 h-7 px-1.5 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0 transition-colors ${
                       isSelected ? 'bg-orange-500 text-white' : 'bg-[#4B5563] text-white'
                     }`}
                   >
-                    {q.number}
+                    {q.number}{q.subpart ? q.subpart : ''}
                   </div>
                   <div className="flex-1">
-                    {q.subpart && <span className="text-xs font-bold text-gray-500 mr-1">{q.subpart}.</span>}
                     <p className="text-sm font-medium text-gray-800 leading-snug">
                       {q.text.replace(/\[Y:[\d\.]+\]\s*/g, '')}
                     </p>

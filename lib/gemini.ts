@@ -11,7 +11,6 @@ export async function callGemini(images: string[], prompt: string): Promise<stri
     try {
       return await callGeminiNative(images, prompt, geminiKey);
     } catch (err: any) {
-      console.warn('Gemini Native API error/rate-limited:', err?.message || err);
       lastErr = err;
     }
   }
@@ -21,7 +20,6 @@ export async function callGemini(images: string[], prompt: string): Promise<stri
     try {
       return await callOpenAICompatible(images, prompt, freeLlmKey, freeLlmBaseUrl, freeLlmModel);
     } catch (err: any) {
-      console.warn('FREELLMAPI / OpenAI Compatible API error:', err?.message || err);
       lastErr = err;
     }
   }
@@ -30,8 +28,10 @@ export async function callGemini(images: string[], prompt: string): Promise<stri
 }
 
 async function callGeminiNative(images: string[], prompt: string, apiKey: string): Promise<string> {
-  const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
-  const candidateModels = Array.from(new Set([primaryModel, 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash']));
+  const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.7-flash';
+  const candidateModels = Array.from(
+    new Set([primaryModel, 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.6-flash'])
+  );
 
   const parts: any[] = [{ text: prompt }];
   images.forEach((img) => {

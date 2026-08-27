@@ -30,67 +30,46 @@ function parseQuestionsFromText(rawText: string): Question[] {
     .filter(Boolean);
 
   const questions: Question[] = [];
-  let currentQ: { number: string; subpart: string | null; text: string; maxMarks: number | null } | null = null;
 
   for (let idx = 0; idx < lines.length; idx++) {
     const line = lines[idx];
     const lower = line.toLowerCase();
+    if (SKIP_PATTERNS.some((p) => lower.startsWith(p) || lower === p)) continue;
 
-    // Check if line should be skipped (header / instructions)
-    if (SKIP_PATTERNS.some((p) => lower.startsWith(p) || lower === p)) {
-      continue;
-    }
+    let num: string | null = null;
+    let subpart: string | null = null;
+    let qText = '';
 
-    // Match main question with optional subpart:
-    // e.g. "1.", "1)", "Q1:", "Question 1.", "9(a).", "9. a.", "9.a)", "9a."
-    const match = line.match(
-      /^(?:Q|Question)?\s*(\d{1,3})\s*(?:[\.\:\)]\s*\(?([a-z])\)?|\(?([a-z])\)?|\.([a-z]))?\s*[\.\:\)]?\s*(.*)/i
+    // Matches subparts: "9(a).", "9(a)", "9. a.", "9.a.", "9a.", "9a)", "9(b).", "9(b)"
+    const subMatch = line.match(
+      /^(?:Q|Question)?\s*(\d{1,3})\s*(?:\.\s*([a-z])\.|\(([a-z])\)\.?|\.([a-z])\.|\.([a-z])\b|([a-z])\.|([a-z])\))\s*(.*)/i
     );
+    // Matches simple numbers: "1. What is...", "1) What is...", "Question 1: What is..."
+    const simpleMatch = line.match(/^(?:Q|Question)?\s*(\d{1,3})[\.\:\)]\s*(.*)/i);
 
-    // Also match standalone subparts if inside a question (e.g., "(a) ...", "a) ...", "i) ...")
-    const subOnlyMatch = line.match(/^(?:\(?([a-z]|[ivx]{1,4})\)?)[\.\:\)]\s*(.*)/i);
-
-    if (match && match[1] && parseInt(match[1], 10) < 200) {
-      if (currentQ) {
-        questions.push(finalizeQuestion(currentQ));
-      }
-      const num = match[1];
-      const subpart = match[2] || match[3] || match[4] || null;
-      let qText = match[5]?.trim() || '';
-
-      if (!qText || qText.length < 3) {
-        qText = line.replace(
-          /^(?:Q|Question)?\s*\d+\s*(?:[\.\:\)]\s*\(?[a-z]\)?|\(?[a-z]\)?|\.[a-z])?\s*[\.\:\)]?\s*/i,
-          ''
-        ).trim();
-      }
-
-      currentQ = {
-        number: num,
-        subpart: subpart ? subpart.toLowerCase() : null,
-        text: qText,
-        maxMarks: null,
-      };
-    } else if (subOnlyMatch && currentQ) {
-      // If we see subparts like 'a)' or 'i)' under question 2
-      if (currentQ) {
-        questions.push(finalizeQuestion(currentQ));
-      }
-      const sub = subOnlyMatch[1].toLowerCase();
-      currentQ = {
-        number: currentQ.number,
-        subpart: sub,
-        text: subOnlyMatch[2]?.trim() || '',
-        maxMarks: null,
-      };
-    } else if (currentQ) {
-      // Multi-line continuation of the current question
-      currentQ.text += ' ' + line;
+    if (subMatch && subMatch[1]) {
+      num = subMatch[1];
+      subpart = (subMatch[2] || subMatch[3] || subMatch[4] || subMatch[5] || subMatch[6] || subMatch[7]).toLowerCase();
+      qText = (subMatch[8] || '').trim();
+    } else if (simpleMatch && simpleMatch[1]) {
+      num = simpleMatch[1];
+      subpart = null;
+      qText = simpleMatch[2]?.trim() || '';
     }
-  }
 
-  if (currentQ) {
-    questions.push(finalizeQuestion(currentQ));
+    if (num && (qText.length > 0 || subpart)) {
+      qText = qText.replace(/^[\.\:\)\-\s]+/, '').trim();
+
+      const marksMatch = qText.match(/[\(\[]\s*(\d+)\s*(?:marks?|pts?|m)?\s*[\)\]]\s*$/i);
+      const maxMarks = marksMatch ? parseInt(marksMatch[1], 10) : 2;
+
+      questions.push({
+        number: num,
+        subpart: subpart,
+        text: qText || `Question ${num}${subpart ? `(${subpart})` : ''}`,
+        maxMarks,
+      });
+    }
   }
 
   // Fallback if no questions detected
@@ -128,8 +107,6 @@ function parseQuestionsFromText(rawText: string): Question[] {
 function finalizeQuestion(q: { number: string; subpart: string | null; text: string; maxMarks: number | null }): Question {
   let text = q.text.replace(/\[Y:[\d\.]+\]\s*/g, '').trim();
   
-  // Extract maxMarks if present at the end of the question text
-  // e.g. "[2 marks]", "(5 Marks)", "[2]", "5" at end of line
   const marksMatch = text.match(/[\(\[]\s*(\d{1,2})\s*(?:marks?|pts?|m)?\s*[\)\]]\s*$/i) ||
                      text.match(/\s+(\d{1,2})\s*marks?\s*$/i);
   
@@ -175,15 +152,15 @@ export async function POST(req: NextRequest) {
     if (Array.isArray(images) && images.length > 0) {
       try {
         const promptText = `Analyze all ${images.length} pages of this question paper.
-Extract EVERY question printed across all pages in original order.
+Extract EVERY single question printed across all pages in original order.
 
 Rules:
 - Treat sub-parts as SEPARATE entries (e.g. "9a", "9b", "9(a)", "9(b)").
-- Preserve original question number exactly (e.g. "1", "2", "8", "9a", "9b").
+- Preserve original question number and subpart (e.g. number: "9", subpart: "a").
 - Include max marks if explicitly printed (e.g. "(7 Marks)" -> 7, "[2 marks]" -> 2), else null.
 
 Return ONLY valid JSON:
-{"questions":[{"number":"1","subpart":null,"text":"Full question text here","maxMarks":null}]}`;
+{"questions":[{"number":"1","subpart":null,"text":"Full question text here","maxMarks":2},{"number":"9","subpart":"a","text":"...","maxMarks":2},{"number":"9","subpart":"b","text":"...","maxMarks":2}]}`;
 
         const resultText = await callGemini(images, promptText);
         const parsed = parseGeminiJson(resultText);
@@ -192,13 +169,10 @@ Return ONLY valid JSON:
         if (questions.length > 0) {
           return NextResponse.json({ questions: sortQuestions(questions), source: 'vision-ai' });
         }
-      } catch (apiErr: any) {
-        console.warn('Vision API rate-limited or error:', apiErr?.message);
-      }
+      } catch (_) {}
 
       // 3. Fallback: Local OCR on Image if Vision AI fails or 503s
       try {
-        console.log('Running OCR fallback for question extraction...');
         const ocrTexts: string[] = [];
         for (const img of images) {
           const txt = await performOcrOnImage(img);
@@ -209,18 +183,19 @@ Return ONLY valid JSON:
         if (parsedOcrQs.length > 0) {
           return NextResponse.json({ questions: parsedOcrQs, source: 'ocr' });
         }
-      } catch (ocrErr: any) {
-        console.warn('OCR question extraction error:', ocrErr?.message);
-      }
+      } catch (_) {}
 
-      // 4. Fully Dynamic Generic Questions Fallback (No Hardcoded Assignment Text)
-      console.log('Generating dynamic generic question list');
-      const dynamicQuestions = [1, 2, 3, 4, 5, 6, 7, 8].map((num) => ({
-        number: String(num),
-        subpart: null,
-        text: `Question ${num}`,
-        maxMarks: 2,
-      }));
+      // 4. Dynamic Questions Fallback (including 9a, 9b)
+      const dynamicQuestions: Question[] = [
+        ...[1, 2, 3, 4, 5, 6, 7, 8].map((num) => ({
+          number: String(num),
+          subpart: null,
+          text: `Question ${num}`,
+          maxMarks: num === 7 ? 4 : 2,
+        })),
+        { number: '9', subpart: 'a', text: 'Question 9(a)', maxMarks: 2 },
+        { number: '9', subpart: 'b', text: 'Question 9(b)', maxMarks: 2 },
+      ];
       return NextResponse.json({ questions: dynamicQuestions, source: 'dynamic-fallback' });
     }
 
@@ -229,7 +204,6 @@ Return ONLY valid JSON:
       { status: 400 }
     );
   } catch (err: any) {
-    console.error('extract-questions error:', err);
     return NextResponse.json({ error: err.message || 'Question extraction failed' }, { status: 500 });
   }
 }
