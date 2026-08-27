@@ -1,6 +1,9 @@
 'use client';
 
-export async function pdfToImages(file: File): Promise<{ images: string[]; pdfText: string }> {
+export async function pdfToImages(
+  file: File,
+  includeYCoords: boolean = true
+): Promise<{ images: string[]; pdfText: string }> {
   const pdfjsLib = await import('pdfjs-dist');
   pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
@@ -23,7 +26,7 @@ export async function pdfToImages(file: File): Promise<{ images: string[]; pdfTe
     try {
       const textContent = await page.getTextContent();
       const pdfHeight = page.getViewport({ scale: 1 }).height;
-      // Build text with real line breaks and exact Y coordinates
+      // Build text with real line breaks and exact Y coordinates if requested
       let lastY: number | null = null;
       const lineChunks: string[] = [];
       let isNewLine = true;
@@ -38,7 +41,7 @@ export async function pdfToImages(file: File): Promise<{ images: string[]; pdfTe
           isNewLine = true;
         }
 
-        if (isNewLine && itemY !== null) {
+        if (isNewLine && includeYCoords && itemY !== null) {
           // Calculate Y percentage from top of page
           const yPercent = ((pdfHeight - itemY) / pdfHeight) * 100;
           lineChunks.push(`[Y:${yPercent.toFixed(2)}] `);

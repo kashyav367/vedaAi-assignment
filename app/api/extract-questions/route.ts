@@ -22,42 +22,78 @@ const SKIP_PATTERNS = [
 ];
 
 function parseQuestionsFromText(rawText: string): Question[] {
-  // Strip embedded [Y:XX.XX] coordinate tags from the entire text stream
+  // Strip any embedded coordinate tags
   const cleanRawText = rawText.replace(/\[Y:[\d\.]+\]\s*/g, '');
-  const lines = cleanRawText.split('\n').map((l) => l.trim()).filter(Boolean);
+  const lines = cleanRawText
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+
   const questions: Question[] = [];
+  let currentQ: { number: string; subpart: string | null; text: string; maxMarks: number | null } | null = null;
 
   for (let idx = 0; idx < lines.length; idx++) {
     const line = lines[idx];
-    // Matches "1.", "1)", "Question 1:", "9(a).", "9. a.", "9.a)"
-    const match = line.match(/^(?:Q|Question)?\s*(\d+)\s*(?:[\.\:\)]\s*\(?([a-z])\)?|\(?([a-z])\)?|\.([a-z]))?\s*[\.\:\)]?\s*(.*)/i);
-    if (match) {
+    const lower = line.toLowerCase();
+
+    // Check if line should be skipped (header / instructions)
+    if (SKIP_PATTERNS.some((p) => lower.startsWith(p) || lower === p)) {
+      continue;
+    }
+
+    // Match main question with optional subpart:
+    // e.g. "1.", "1)", "Q1:", "Question 1.", "9(a).", "9. a.", "9.a)", "9a."
+    const match = line.match(
+      /^(?:Q|Question)?\s*(\d{1,3})\s*(?:[\.\:\)]\s*\(?([a-z])\)?|\(?([a-z])\)?|\.([a-z]))?\s*[\.\:\)]?\s*(.*)/i
+    );
+
+    // Also match standalone subparts if inside a question (e.g., "(a) ...", "a) ...", "i) ...")
+    const subOnlyMatch = line.match(/^(?:\(?([a-z]|[ivx]{1,4})\)?)[\.\:\)]\s*(.*)/i);
+
+    if (match && match[1] && parseInt(match[1], 10) < 200) {
+      if (currentQ) {
+        questions.push(finalizeQuestion(currentQ));
+      }
       const num = match[1];
       const subpart = match[2] || match[3] || match[4] || null;
       let qText = match[5]?.trim() || '';
-      
-      // If qText was empty or just a remnant, use the whole line
+
       if (!qText || qText.length < 3) {
-        qText = line.replace(/^(?:Q|Question)?\s*\d+\s*(?:[\.\:\)]\s*\(?[a-z]\)?|\(?[a-z]\)?|\.[a-z])?\s*[\.\:\)]?\s*/i, '').trim();
+        qText = line.replace(
+          /^(?:Q|Question)?\s*\d+\s*(?:[\.\:\)]\s*\(?[a-z]\)?|\(?[a-z]\)?|\.[a-z])?\s*[\.\:\)]?\s*/i,
+          ''
+        ).trim();
       }
-      
-      qText = qText.replace(/\[Y:[\d\.]+\]\s*/g, '').trim();
-      const lower = qText.toLowerCase();
-      if (SKIP_PATTERNS.some((p) => lower.includes(p))) continue;
 
-      const marksMatch = qText.match(/[\(\[]\s*(\d+)\s*(?:marks?|pts?|m)?\s*[\)\]]\s*$/i);
-      const maxMarks = marksMatch ? parseInt(marksMatch[1], 10) : 2;
-
-      questions.push({
+      currentQ = {
         number: num,
         subpart: subpart ? subpart.toLowerCase() : null,
-        text: qText || `Question ${num}${subpart || ''}`,
-        maxMarks,
-      });
+        text: qText,
+        maxMarks: null,
+      };
+    } else if (subOnlyMatch && currentQ) {
+      // If we see subparts like 'a)' or 'i)' under question 2
+      if (currentQ) {
+        questions.push(finalizeQuestion(currentQ));
+      }
+      const sub = subOnlyMatch[1].toLowerCase();
+      currentQ = {
+        number: currentQ.number,
+        subpart: sub,
+        text: subOnlyMatch[2]?.trim() || '',
+        maxMarks: null,
+      };
+    } else if (currentQ) {
+      // Multi-line continuation of the current question
+      currentQ.text += ' ' + line;
     }
   }
 
-  // Generic fallback if strict regex didn't catch items: extract any line ending with ? or starting with number
+  if (currentQ) {
+    questions.push(finalizeQuestion(currentQ));
+  }
+
+  // Fallback if no questions detected
   if (questions.length === 0) {
     let qNum = 1;
     for (const line of lines) {
@@ -75,17 +111,41 @@ function parseQuestionsFromText(rawText: string): Question[] {
     }
   }
 
+  // Deduplicate by question key
   const seen = new Set<string>();
   const unique: Question[] = [];
   for (const q of questions) {
     const key = q.subpart ? `${q.number}${q.subpart}` : q.number;
-    if (!seen.has(key)) {
+    if (!seen.has(key) && q.text.length > 0) {
       seen.add(key);
       unique.push(q);
     }
   }
 
   return unique;
+}
+
+function finalizeQuestion(q: { number: string; subpart: string | null; text: string; maxMarks: number | null }): Question {
+  let text = q.text.replace(/\[Y:[\d\.]+\]\s*/g, '').trim();
+  
+  // Extract maxMarks if present at the end of the question text
+  // e.g. "[2 marks]", "(5 Marks)", "[2]", "5" at end of line
+  const marksMatch = text.match(/[\(\[]\s*(\d{1,2})\s*(?:marks?|pts?|m)?\s*[\)\]]\s*$/i) ||
+                     text.match(/\s+(\d{1,2})\s*marks?\s*$/i);
+  
+  let maxMarks = q.maxMarks;
+  if (marksMatch) {
+    maxMarks = parseInt(marksMatch[1], 10);
+  } else if (!maxMarks) {
+    maxMarks = 2; // Default reasonable weight
+  }
+
+  return {
+    number: q.number,
+    subpart: q.subpart,
+    text: text || `Question ${q.number}${q.subpart ? `(${q.subpart})` : ''}`,
+    maxMarks,
+  };
 }
 
 function sortQuestions(qs: Question[]) {

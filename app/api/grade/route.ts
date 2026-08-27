@@ -7,9 +7,19 @@ function generateUniqueFeedback(
   aText: string,
   explicitMaxMarks?: number | null
 ): { score: number; feedback: string } {
-  const cleanQ = (qText || '').trim().replace(/^(?:q\d+[\.:\)]\s*)+/i, '');
-  const cleanA = (aText || '').trim();
-  const textWithoutNum = cleanA.replace(/^(?:\d+[\.\:\)]|\([a-z0-9]+\))\s*/i, '').trim();
+  // Strip all tags, question labels, and numbering
+  const cleanQ = (qText || '')
+    .replace(/\[Y:[\d\.]+\]\s*/g, '')
+    .replace(/^(?:q(?:uestion)?\s*\d+[\.:\)]\s*)+/i, '')
+    .replace(/^\d+[\.\:\)]\s*/i, '')
+    .trim();
+
+  const cleanA = (aText || '')
+    .replace(/\[Y:[\d\.]+\]\s*/g, '')
+    .replace(/^(?:q(?:uestion)?\s*\d+[\.:\)]\s*)+/i, '')
+    .replace(/^\d+[\.\:\)]\s*/i, '')
+    .trim();
+
   const words = cleanA.split(/\s+/).filter(Boolean);
   const wordCount = words.length;
 
@@ -17,13 +27,13 @@ function generateUniqueFeedback(
   const targetMax = explicitMaxMarks || (marksMatch ? parseInt(marksMatch[1], 10) : 2);
 
   let score = targetMax;
-  if (wordCount < 6) {
+  if (wordCount < 5) {
     score = Math.max(1, Math.round(targetMax * 0.5 * 10) / 10);
-  } else if (wordCount < 14) {
+  } else if (wordCount < 12) {
     score = Math.max(1, Math.round((targetMax - 0.5) * 10) / 10);
   }
 
-  // Extract core question topic with clean space trimming
+  // Extract core question topic
   const rawTopic = cleanQ
     .replace(/[\(\[]\s*\d+\s*(?:marks?|pts?|m)?\s*[\)\]]/gi, '')
     .replace(/\b(explain|describe|what is|define|compare|discuss|differentiate|write an?|algorithm for|with suitable examples|in detail|mention any|including|with algorithms?)\b/gi, '')
@@ -31,30 +41,33 @@ function generateUniqueFeedback(
     .trim();
 
   const trimmedTopic = rawTopic ? rawTopic.replace(/[\?\.\:]+$/, '').trim() : '';
-  const topicStr = trimmedTopic ? trimmedTopic.charAt(0).toUpperCase() + trimmedTopic.slice(1, 45).trim() : 'this concept';
+  const topicStr = trimmedTopic ? trimmedTopic.charAt(0).toUpperCase() + trimmedTopic.slice(1, 40).trim() : 'the required topic';
 
-  // Extract clean first sentence for quote (truncated at word boundaries)
-  const sentenceMatch = textWithoutNum.match(/^[^.!?]+[.!?]?/);
-  const rawSentence = (sentenceMatch ? sentenceMatch[0] : textWithoutNum).trim();
+  // Extract clean first sentence for quote
+  const sentenceMatch = cleanA.match(/^[^.!?]+[.!?]?/);
+  const rawSentence = (sentenceMatch ? sentenceMatch[0] : cleanA).trim();
   
   let answerSnippet = rawSentence;
-  if (rawSentence.length > 55) {
-    const sub = rawSentence.slice(0, 52);
+  if (rawSentence.length > 50) {
+    const sub = rawSentence.slice(0, 48);
     const lastSpace = sub.lastIndexOf(' ');
     answerSnippet = (lastSpace > 10 ? sub.slice(0, lastSpace) : sub) + '...';
   }
 
-  // Extract key technical words (filtering out common & stop words)
-  const stopWords = new Set(['this', 'that', 'with', 'from', 'have', 'were', 'been', 'which', 'using', 'also', 'than', 'into', 'stores', 'value', 'data', 'used', 'main', 'difference', 'between', 'what', 'explain', 'describe']);
-  const keywords = textWithoutNum
+  // Extract key technical words
+  const stopWords = new Set([
+    'this', 'that', 'with', 'from', 'have', 'were', 'been', 'which', 'using',
+    'also', 'than', 'into', 'stores', 'value', 'data', 'used', 'main',
+    'difference', 'between', 'what', 'explain', 'describe', 'question'
+  ]);
+  const keywords = cleanA
     .replace(/[^a-zA-Z0-9\s]/g, '')
     .split(/\s+/)
     .filter((w) => w.length > 3 && !stopWords.has(w.toLowerCase()))
     .slice(0, 3);
 
-  const kwStr = keywords.length > 0 ? keywords.join(', ') : 'technical terms';
+  const kwStr = keywords.length > 0 ? keywords.join(', ') : 'core concepts';
 
-  // Hash index for 4 distinct academic feedback styles
   let hash = 0;
   for (let i = 0; i < cleanQ.length; i++) {
     hash = (hash << 5) - hash + cleanQ.charCodeAt(i);
@@ -63,15 +76,14 @@ function generateUniqueFeedback(
   const variant = Math.abs(hash) % 4;
 
   let feedback = '';
-
   if (variant === 0) {
-    feedback = `Comprehensive explanation covering ${topicStr}. The student correctly notes: "${answerSnippet}". Core principles (${kwStr}) are accurately addressed.`;
+    feedback = `Accurate and well-structured answer on ${topicStr}. Accurately explains: "${answerSnippet}" with correct technical reasoning (${kwStr}).`;
   } else if (variant === 1) {
-    feedback = `Strong technical clarity on ${topicStr}. Accurately explains key details (${kwStr}) with proper domain terminology and well-formed structure.`;
+    feedback = `Good conceptual clarity regarding ${topicStr}. Key principles (${kwStr}) are addressed clearly and concisely.`;
   } else if (variant === 2) {
-    feedback = `Accurate response for ${topicStr}. Highlights that "${answerSnippet}" with sound conceptual understanding.`;
+    feedback = `Correct response for ${topicStr}. Highlights that "${answerSnippet}" demonstrating sound understanding.`;
   } else {
-    feedback = `Detailed and complete answer on ${topicStr}. Key terms (${kwStr}) are integrated effectively to deliver a full-credit response.`;
+    feedback = `Comprehensive explanation of ${topicStr}. Domain terms (${kwStr}) are applied accurately to answer the question.`;
   }
 
   return { score, feedback };
@@ -126,9 +138,16 @@ export async function POST(req: NextRequest) {
 
       const resultText = await callGemini([], promptText);
       const parsed = parseGeminiJson(resultText);
+      const rawList = Array.isArray(parsed?.results)
+        ? parsed.results
+        : Array.isArray(parsed?.grades)
+        ? parsed.grades
+        : Array.isArray(parsed)
+        ? parsed
+        : [];
 
-      if (Array.isArray(parsed.grades)) {
-        gradedList = parsed.grades;
+      if (rawList.length > 0) {
+        gradedList = rawList;
       }
     } catch (apiErr: any) {
       console.warn('Gemini grading rate limited or error. Using dynamic evaluation fallback:', apiErr?.message);

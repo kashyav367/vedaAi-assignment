@@ -33,12 +33,12 @@ export default function UploadPage() {
     try {
       const qData =
         questionPaper.type === 'application/pdf'
-          ? await pdfToImages(questionPaper)
+          ? await pdfToImages(questionPaper, false)
           : { images: [await fileToBase64(questionPaper)], pdfText: '' };
 
       const aData =
         answerSheet.type === 'application/pdf'
-          ? await pdfToImages(answerSheet)
+          ? await pdfToImages(answerSheet, true)
           : { images: [await fileToBase64(answerSheet)], pdfText: '' };
 
       const qRes = await fetch('/api/extract-questions', {
