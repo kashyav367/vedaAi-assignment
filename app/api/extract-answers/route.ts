@@ -194,10 +194,18 @@ function parseAnswersFromPdfText(rawText: string, expectedQuestions: string[]) {
       }
     }
 
+    const parsedLines = lines.map(line => {
+      const match = line.match(/^\[Y:([\d\.]+)\]\s*(.*)$/);
+      if (match) {
+        return { y: parseFloat(match[1]), text: match[2] };
+      }
+      return { y: null, text: line };
+    });
+
     const itemPositions: any[] = [];
-    for (let l = 0; l < lines.length; l++) {
-      const line = lines[l].trim();
-      const match = line.match(/^(?:q(?:uestion)?\s*)?(\d+)\s*(?:\(?([a-z])\)?|\.([a-z]))?\s*[\.\:\)]/i);
+    for (let l = 0; l < parsedLines.length; l++) {
+      const lineText = parsedLines[l].text.trim();
+      const match = lineText.match(/^(?:q(?:uestion)?\s*)?(\d+)\s*(?:\(?([a-z])\)?|\.([a-z]))?\s*[\.\:\)]/i);
       if (match) {
         const num = match[1];
         const subpart = match[2] || match[3] || '';
@@ -215,7 +223,7 @@ function parseAnswersFromPdfText(rawText: string, expectedQuestions: string[]) {
       const startLine = item.lineIdx;
       const endLine = nextItem ? nextItem.lineIdx : totalLines;
 
-      const fullText = lines.slice(startLine, endLine).join(' ').trim();
+      const fullText = parsedLines.slice(startLine, endLine).map(l => l.text).join(' ').trim();
       const norm = normalizeQKey(item.num);
 
       let mappedNum = item.num;
@@ -229,34 +237,57 @@ function parseAnswersFromPdfText(rawText: string, expectedQuestions: string[]) {
       }
 
       if (fullText.length > 5) {
+        // Find the first valid Y coordinate in this block
+        let startY = null;
+        for (let i = startLine; i < endLine; i++) {
+          if (parsedLines[i].y !== null) {
+            startY = parsedLines[i].y;
+            break;
+          }
+        }
         rawBlocks.push({
           questionNumber: mappedNum,
           text: fullText,
           _startLine: startLine,
           _endLine: endLine,
+          _exactY: startY,
         });
       }
     }
 
-    // Use line positions to compute accurate Y coordinates
-    // The PDF image maps lines proportionally: line N of totalLines → N/totalLines of page height
-    // Account for header space and page margins
-    const pageTopMargin = 3.0;  // top margin of rendered image
+    const pageTopMargin = 3.0;
     const pageBottomMargin = 3.0;
     const headerFraction = headerLines / totalLines;
-    const contentStartY = pageTopMargin + headerFraction * (100 - pageTopMargin - pageBottomMargin);
-    const contentEndY = 100 - pageBottomMargin;
+    
+    const laidOut = rawBlocks.map((a: any, idx: number) => {
+      let y = 0;
+      let height = 5;
 
-    const laidOut = rawBlocks.map((a: any) => {
-      const answerStartFrac = a._startLine / totalLines;
-      const answerEndFrac = a._endLine / totalLines;
-      const y = pageTopMargin + answerStartFrac * (100 - pageTopMargin - pageBottomMargin);
-      const bottom = pageTopMargin + answerEndFrac * (100 - pageTopMargin - pageBottomMargin);
-      const height = Math.max(3, bottom - y - 0.3);
+      if (a._exactY !== null) {
+        // We have EXACT coordinates from the PDF!
+        y = a._exactY - 0.5; // slight padding
+        
+        // Find where the next answer starts to determine height
+        let nextY = 97.0; // default bottom
+        if (idx < rawBlocks.length - 1 && rawBlocks[idx + 1]._exactY !== null) {
+          nextY = rawBlocks[idx + 1]._exactY;
+        }
+        height = Math.max(3, nextY - y - 1.0);
+      } else {
+        // Fallback to proportional calculation if OCR text (no exact Y tags)
+        const answerStartFrac = a._startLine / totalLines;
+        const answerEndFrac = a._endLine / totalLines;
+        y = pageTopMargin + answerStartFrac * (100 - pageTopMargin - pageBottomMargin);
+        const bottom = pageTopMargin + answerEndFrac * (100 - pageTopMargin - pageBottomMargin);
+        height = Math.max(3, bottom - y - 0.3);
+      }
+
+      // Cleanup embedded [Y:] tags from text just in case they slipped through
+      const cleanText = a.text.replace(/\[Y:[\d\.]+\]\s*/g, '');
 
       return {
         questionNumber: a.questionNumber,
-        text: a.text,
+        text: cleanText,
         page: pageNum,
         bbox: {
           x: 4,

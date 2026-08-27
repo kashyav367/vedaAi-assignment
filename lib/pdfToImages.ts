@@ -22,16 +22,29 @@ export async function pdfToImages(file: File): Promise<{ images: string[]; pdfTe
 
     try {
       const textContent = await page.getTextContent();
-      // Build text with real line breaks by detecting Y-position changes between items
+      const pdfHeight = page.getViewport({ scale: 1 }).height;
+      // Build text with real line breaks and exact Y coordinates
       let lastY: number | null = null;
       const lineChunks: string[] = [];
+      let isNewLine = true;
+
       for (const item of textContent.items as any[]) {
         if (!item.str || item.str.trim().length === 0) continue;
         const itemY = item.transform ? item.transform[5] : null;
+
         if (lastY !== null && itemY !== null && Math.abs(itemY - lastY) > 2) {
           // Y position changed significantly → new line
           lineChunks.push('\n');
+          isNewLine = true;
         }
+
+        if (isNewLine && itemY !== null) {
+          // Calculate Y percentage from top of page
+          const yPercent = ((pdfHeight - itemY) / pdfHeight) * 100;
+          lineChunks.push(`[Y:${yPercent.toFixed(2)}] `);
+          isNewLine = false;
+        }
+
         lineChunks.push(item.str);
         if (itemY !== null) lastY = itemY;
       }
